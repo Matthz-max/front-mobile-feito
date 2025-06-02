@@ -1,4 +1,4 @@
-import React, { useState, useContext, useRef } from 'react';
+import React, { useState, useContext, useRef, useEffect } from 'react';
 import {
   SafeAreaView,
   View,
@@ -14,7 +14,7 @@ import {
   Dimensions,
 } from 'react-native';
 import CarCard from '../components/CarCard';
-import { getCarImage } from '../services/api';
+import { getCarImage, saveOrUpdateCar } from '../services/api';
 import { ThemeContext } from '../contexts/ThemeContext';
 import { FavoritesContext } from '../contexts/FavoritesContext';
 import Header from '../components/Header';
@@ -34,42 +34,94 @@ const HomeScreen = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [favoriteDescription, setFavoriteDescription] = useState('');
   const [favoriteRating, setFavoriteRating] = useState('');
+  const [editingCarId, setEditingCarId] = useState(null); // Guarda o id do carro para update
 
+  // Buscar imagem e salvar carro simples (ao buscar)
   const handleSearch = async () => {
     if (!carName.trim()) return;
-    const image = await getCarImage(carName);
-    setCarImage(image);
+
+    try {
+      const image = await getCarImage(carName);
+      setCarImage(image);
+
+      if (image) {
+        // Salva no backend - apenas novo (sem id)
+        const carData = {
+          nome: carName,
+          imagem: image,
+          descricao: '',
+          rating: null,
+          isFavorite: isFavorite(carName),
+        };
+        const savedCar = await saveOrUpdateCar(carData);
+        // Atualiza id para o carro salvo
+        setEditingCarId(savedCar.id);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar e salvar carro:', error);
+    }
   };
 
+  // Abrir modal para editar favoritos
   const handleFavoritePress = () => {
     if (!carName) return;
+
     if (isFavorite(carName)) {
+      // Pega os dados do favorito atual para preencher modal
       const fav = favorites.find((f) => f.carName === carName);
       setFavoriteDescription(fav?.description || '');
       setFavoriteRating(fav?.rating?.toString() || '');
+      setEditingCarId(fav?.id || null); // Pega o id para usar no PUT
+      setCarImage(fav?.carImage || carImage);
     } else {
+      // Novo favorito, limpa campos
       setFavoriteDescription('');
       setFavoriteRating('');
+      setEditingCarId(null);
     }
     setModalVisible(true);
   };
 
-  const saveFavorite = () => {
+  // Salvar favorito com dados detalhados e atualizar contexto
+  const saveFavorite = async () => {
     const ratingNumber = parseInt(favoriteRating);
     if (!carName) return;
 
-    if (isFavorite(carName)) {
-      removeFavorite(carName);
+    const carData = {
+      id: editingCarId, // importante para o backend entender que é update
+      nome: carName,
+      imagem: carImage,
+      descricao: favoriteDescription || '',
+      rating: isNaN(ratingNumber) ? null : ratingNumber,
+      isFavorite: true,
+    };
+
+    try {
+      // Se tiver id faz PUT, senão POST
+      const savedCar = await saveOrUpdateCar(carData);
+
+      // Atualiza o contexto favoritos local
+      if (isFavorite(carName)) {
+        removeFavorite(carName);
+      }
+      addFavorite({
+        id: savedCar.id,
+        carName,
+        carImage: savedCar.imagem,
+        description: savedCar.descricao,
+        rating: savedCar.rating,
+      });
+
+      // Atualiza o id local para futuros updates
+      setEditingCarId(savedCar.id);
+
+      setModalVisible(false);
+    } catch (error) {
+      console.error('Erro ao salvar carro no backend:', error);
     }
-    addFavorite({
-      carName,
-      carImage,
-      description: favoriteDescription,
-      rating: ratingNumber,
-    });
-    setModalVisible(false);
   };
 
+  // Animação menu
   const openMenu = () => {
     setMenuVisible(true);
     Animated.timing(slideAnim, {
@@ -97,20 +149,23 @@ const HomeScreen = () => {
       <Header onFavorite={handleFavoritePress} onOpenMenu={openMenu} />
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: colors.text }]}>Buscar Carro</Text>
-
         <TextInput
           style={[
             styles.input,
             {
               color: colors.text,
               borderColor: colors.primary,
-              backgroundColor: isDark ? '#333' : '#f9f9f9',
+              backgroundColor: isDark ? '#2a2a2a' : '#f0f0f0',
               shadowColor: colors.shadow,
-              shadowOpacity: 0.1,
-              shadowRadius: 6,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 3,
+              shadowOpacity: 0.15,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 5,
+              fontSize: 18,
+              fontWeight: '600',
+              paddingHorizontal: 20,
+              paddingVertical: 14,
+              borderRadius: 20,
             },
           ]}
           placeholder="Digite o nome do carro"
@@ -136,87 +191,90 @@ const HomeScreen = () => {
           </TouchableOpacity>
         )}
       </ScrollView>
-// só alterei o modal (parte dentro do HomeScreen, e styles relacionados)
-<Modal
-  visible={modalVisible}
-  animationType="slide"
-  transparent={true}
-  onRequestClose={() => setModalVisible(false)}
->
-  <View style={styles.modalOverlay}>
-    <View style={[styles.modalContent, { backgroundColor: colors.cardBackground || colors.background }]}>
-      <ScrollView contentContainerStyle={styles.modalScrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        {carImage && (
-          <View style={styles.modalImageContainer}>
-            <Image source={{ uri: carImage }} style={styles.modalImage} resizeMode="contain" />
-          </View>
-        )}
 
-        <View style={styles.modalBody}>
-          <Text style={[styles.modalTitle, { color: colors.text }]}>Favoritar Carro</Text>
-
-          <View style={styles.favoriteRow}>
-            <Text style={[styles.modalLabel, { color: colors.text }]}>Favorito:</Text>
-            <TouchableOpacity
-              onPress={() => {
-                if (isFavorite(carName)) removeFavorite(carName);
-                else addFavorite({ carName, carImage, description: favoriteDescription, rating: parseInt(favoriteRating) || 0 });
-              }}
-              style={{ marginLeft: 10 }}
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.cardBackground || colors.background }]}>
+            <ScrollView
+              contentContainerStyle={styles.modalScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
             >
-              <Ionicons
-                name={isFavorite(carName) ? 'star' : 'star-outline'}
-                size={24}
-                color={isFavorite(carName) ? '#ffd700' : colors.text}
-              />
-            </TouchableOpacity>
-          </View>
+              {carImage && (
+                <View style={styles.modalImageContainer}>
+                  <Image source={{ uri: carImage }} style={styles.modalImage} resizeMode="contain" />
+                </View>
+              )}
 
-          <Text style={[styles.modalLabel, { color: colors.text }]}>Descrição:</Text>
-          <TextInput
-            style={[styles.modalInput, { color: colors.text, borderColor: colors.primary, backgroundColor: isDark ? '#222' : '#fff' }]}
-            multiline
-            numberOfLines={2}
-            value={favoriteDescription}
-            onChangeText={setFavoriteDescription}
-            placeholder="Escreva uma descrição"
-            placeholderTextColor={colors.text + '88'}
-          />
+              <View style={styles.modalBody}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Favoritar Carro</Text>
 
-          <Text style={[styles.modalLabel, { color: colors.text }]}>Nota (1 a 5):</Text>
-          <TextInput
-            style={[styles.modalInput, { color: colors.text, borderColor: colors.primary, backgroundColor: isDark ? '#222' : '#fff' }]}
-            keyboardType="numeric"
-            value={favoriteRating}
-            onChangeText={(val) => {
-              if (/^[1-5]?$/.test(val)) setFavoriteRating(val);
-            }}
-            placeholder="Digite uma nota"
-            placeholderTextColor={colors.text + '88'}
-            maxLength={1}
-          />
+                <View style={styles.favoriteRow}>
+                  <Text style={[styles.modalLabel, { color: colors.text }]}>Favorito:</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (isFavorite(carName)) removeFavorite(carName);
+                      else addFavorite({ id: editingCarId, carName, carImage, description: favoriteDescription, rating: parseInt(favoriteRating) || 0 });
+                    }}
+                    style={{ marginLeft: 10 }}
+                  >
+                    <Ionicons
+                      name={isFavorite(carName) ? 'star' : 'star-outline'}
+                      size={24}
+                      color={isFavorite(carName) ? '#ffd700' : colors.text}
+                    />
+                  </TouchableOpacity>
+                </View>
 
-          <View style={styles.modalButtons}>
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
-              onPress={saveFavorite}
-            >
-              <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Salvar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: '#999', shadowColor: '#999' }]}
-              onPress={() => setModalVisible(false)}
-            >
-              <Text style={[styles.modalButtonText, { color: '#fff' }]}>Cancelar</Text>
-            </TouchableOpacity>
+                <Text style={[styles.modalLabel, { color: colors.text }]}>Descrição:</Text>
+                <TextInput
+                  style={[styles.modalInput, { color: colors.text, borderColor: colors.primary, backgroundColor: isDark ? '#222' : '#fff' }]}
+                  multiline
+                  numberOfLines={2}
+                  value={favoriteDescription}
+                  onChangeText={setFavoriteDescription}
+                  placeholder="Escreva uma descrição"
+                  placeholderTextColor={colors.text + '88'}
+                />
+
+                <Text style={[styles.modalLabel, { color: colors.text }]}>Nota (1 a 5):</Text>
+                <TextInput
+                  style={[styles.modalInput, { color: colors.text, borderColor: colors.primary, backgroundColor: isDark ? '#222' : '#fff' }]}
+                  keyboardType="numeric"
+                  value={favoriteRating}
+                  onChangeText={(val) => {
+                    if (/^[1-5]?$/.test(val)) setFavoriteRating(val);
+                  }}
+                  placeholder="Digite uma nota"
+                  placeholderTextColor={colors.text + '88'}
+                  maxLength={1}
+                />
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
+                    onPress={saveFavorite}
+                  >
+                    <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Salvar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton, { backgroundColor: '#999', shadowColor: '#999' }]}
+                    onPress={() => setModalVisible(false)}
+                  >
+                    <Text style={[styles.modalButtonText, { color: '#fff' }]}>Cancelar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </ScrollView>
           </View>
         </View>
-      </ScrollView>
-    </View>
-  </View>
-</Modal>
+      </Modal>
 
-      {/* Menu Lateral */}
       {menuVisible && (
         <Pressable style={styles.menuOverlay} onPress={closeMenu}>
           <Animated.View
@@ -254,145 +312,119 @@ const HomeScreen = () => {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: {
-    padding: 24,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
-    marginBottom: 20,
+    padding: 20,
+    paddingTop: 10,
   },
   input: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    fontSize: 18,
-    fontWeight: '500',
+    marginBottom: 20,
   },
   buttonsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 18,
+    marginBottom: 15,
   },
   button: {
-    paddingHorizontal: 30,
-    paddingVertical: 14,
-    borderRadius: 50,
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 30,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    elevation: 8,
   },
   buttonText: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '600',
   },
   carCard: {
-    marginTop: 36,
-    marginBottom: 100,
+    marginTop: 10,
+    marginBottom: 30,
   },
 
-  // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: '#00000066',
-    justifyContent: 'flex-end',
+    backgroundColor: '#000000bb',
+    justifyContent: 'center',
+    padding: 20,
   },
-modalContent: {
-  maxHeight: height * 0.75,
-  borderTopLeftRadius: 24,
-  borderTopRightRadius: 24,
-  overflow: 'hidden',
-  paddingHorizontal: 20,
-  paddingVertical: 15,
-  shadowColor: '#000',
-  shadowOpacity: 0.2,
-  shadowRadius: 10,
-  shadowOffset: { width: 0, height: -5 },
-  elevation: 10,
-},
-modalImageContainer: {
-  height: 160,
-  overflow: 'hidden',
-  backgroundColor: 'transparent',
-  justifyContent: 'center',
-  alignItems: 'center',
-  marginBottom: 15,
-},
-
-modalImage: {
-  width: '100%',
-  height: '100%',
-  borderRadius: 16,
-  shadowColor: '#000',
-  shadowOpacity: 0.15,
-  shadowRadius: 6,
-  shadowOffset: { width: 0, height: 3 },
-  
-},
-
-
-modalBody: {
-  flex: 1,
- 
-},
-
-modalBody: {
-  flex: 1,
-  paddingHorizontal: 20,
-  paddingTop: 12,
-},
-modalTitle: {
-  fontSize: 22,
-  fontWeight: '700',
-  marginBottom: 10,
-  textAlign: 'center',
-},
-favoriteRow: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  marginBottom: 10,
-  justifyContent: 'center',
-},
-modalLabel: {
-  fontWeight: '600',
-  fontSize: 14,
-  marginBottom: 4,
-},
-modalInput: {
-  borderWidth: 1,
-  borderRadius: 12,
-  paddingHorizontal: 12,
-  paddingVertical: 8,
-  fontSize: 14,
-  marginBottom: 10,
-  shadowColor: '#000',
-  shadowOpacity: 0.07,
-  shadowRadius: 4,
-  shadowOffset: { width: 0, height: 1 },
-  elevation: 2,
-},
-modalButtons: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  marginTop: 8,
-},
-modalButton: {
-  flex: 1,
-  paddingVertical: 12,
-  borderRadius: 30,
-  marginHorizontal: 5,
-  shadowOpacity: 0.25,
-  shadowRadius: 6,
-  shadowOffset: { width: 0, height: 3 },
-  elevation: 5,
-},
-modalButtonText: {
-  fontWeight: '600',
-  fontSize: 16,
-  textAlign: 'center',
-},
-
+  modalContent: {
+    borderRadius: 18,
+    maxHeight: height * 0.85,
+    overflow: 'hidden',
+  },
+  modalScrollContent: {
+    padding: 20,
+  },
+  modalImageContainer: {
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  modalImage: {
+    width: 280,
+    height: 160,
+    borderRadius: 12,
+  },
+  modalBody: {
+    marginTop: 10,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  modalLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  modalInput: {
+    borderWidth: 1.4,
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 18,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  favoriteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  modalButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 25,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 7,
+  },
+  modalButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  menuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  menu: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 200,
+    height: '100%',
+    padding: 20,
+  },
+  menuButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 25,
+  },
 });
 
 export default HomeScreen;
