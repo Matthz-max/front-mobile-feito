@@ -14,7 +14,7 @@ import {
   Dimensions,
 } from 'react-native';
 import CarCard from '../components/CarCard';
-import { getCarImage, saveOrUpdateCar } from '../services/api';
+import { getCarImage, saveCar, saveOrUpdateCar } from '../services/api';
 import { ThemeContext } from '../contexts/ThemeContext';
 import { FavoritesContext } from '../contexts/FavoritesContext';
 import Header from '../components/Header';
@@ -26,7 +26,7 @@ const HomeScreen = () => {
   const [carName, setCarName] = useState('');
   const [carImage, setCarImage] = useState(null);
   const { colors, isDark, toggleTheme } = useContext(ThemeContext);
-  const { favorites, addFavorite, removeFavorite, isFavorite } = useContext(FavoritesContext);
+  const { favorites, addFavorite, removeFavorite, isFavorite, updateFavorite } = useContext(FavoritesContext);
 
   const [menuVisible, setMenuVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(200)).current;
@@ -35,60 +35,39 @@ const HomeScreen = () => {
   const [favoriteDescription, setFavoriteDescription] = useState('');
   const [favoriteRating, setFavoriteRating] = useState('');
   const [editingCarId, setEditingCarId] = useState(null); // Guarda o id do carro para update
+const handleSearch = async () => {
+  console.log('handleSearch: Iniciando busca para carro:', carName);
 
-  // Buscar imagem e salvar carro simples (ao buscar)
-  const handleSearch = async () => {
-    if (!carName.trim()) return;
+  if (!carName.trim()) {
+    console.warn('handleSearch: Nome do carro vazio, abortando busca');
+    return;
+  }
 
-    try {
-      const image = await getCarImage(carName);
-      setCarImage(image);
+  try {
+    const image = await getCarImage(carName);
+    console.log('handleSearch: URL da imagem obtida:', image);
+    setCarImage(image);
 
-      if (image) {
-        // Salva no backend - apenas novo (sem id)
-        const carData = {
-          nome: carName,
-          imagem: image,
-          descricao: '',
-          rating: null,
-          isFavorite: isFavorite(carName),
-        };
-        const savedCar = await saveOrUpdateCar(carData);
-        // Atualiza id para o carro salvo
-        setEditingCarId(savedCar.id);
-      }
-    } catch (error) {
-      console.error('Erro ao buscar e salvar carro:', error);
-    }
-  };
+    setEditingCarId(null); // **Limpa o ID para indicar que ainda não salvou no backend**
 
-  // Abrir modal para editar favoritos
-  const handleFavoritePress = () => {
-    if (!carName) return;
+  } catch (error) {
+    console.error('handleSearch: Erro ao buscar imagem do carro:', error);
+  }
+};
 
-    if (isFavorite(carName)) {
-      // Pega os dados do favorito atual para preencher modal
-      const fav = favorites.find((f) => f.carName === carName);
-      setFavoriteDescription(fav?.description || '');
-      setFavoriteRating(fav?.rating?.toString() || '');
-      setEditingCarId(fav?.id || null); // Pega o id para usar no PUT
-      setCarImage(fav?.carImage || carImage);
-    } else {
-      // Novo favorito, limpa campos
-      setFavoriteDescription('');
-      setFavoriteRating('');
-      setEditingCarId(null);
-    }
-    setModalVisible(true);
-  };
-
-  // Salvar favorito com dados detalhados e atualizar contexto
   const saveFavorite = async () => {
+    console.log('saveFavorite: Salvando favorito para carro:', carName);
+
     const ratingNumber = parseInt(favoriteRating);
-    if (!carName) return;
+    console.log('saveFavorite: Rating convertido para número:', ratingNumber);
+
+    if (!carName.trim()) {
+      console.warn('saveFavorite: Nome do carro vazio, abortando');
+      return;
+    }
 
     const carData = {
-      id: editingCarId, // importante para o backend entender que é update
+      id: editingCarId || null,
       nome: carName,
       imagem: carImage,
       descricao: favoriteDescription || '',
@@ -96,29 +75,63 @@ const HomeScreen = () => {
       isFavorite: true,
     };
 
+    console.log('saveFavorite: Dados do carro a salvar ou atualizar:', carData);
+
     try {
-      // Se tiver id faz PUT, senão POST
       const savedCar = await saveOrUpdateCar(carData);
+      console.log('saveFavorite: Resposta do backend:', savedCar);
 
-      // Atualiza o contexto favoritos local
       if (isFavorite(carName)) {
-        removeFavorite(carName);
+        console.log('saveFavorite: Carro já está favoritado, atualizando favorito');
+        updateFavorite({
+          id: savedCar.id,
+          carName,
+          carImage: savedCar.imagem,
+          description: savedCar.descricao,
+          rating: savedCar.rating,
+        });
+      } else {
+        addFavorite({
+          id: savedCar.id,
+          carName,
+          carImage: savedCar.imagem,
+          description: savedCar.descricao,
+          rating: savedCar.rating,
+        });
       }
-      addFavorite({
-        id: savedCar.id,
-        carName,
-        carImage: savedCar.imagem,
-        description: savedCar.descricao,
-        rating: savedCar.rating,
-      });
 
-      // Atualiza o id local para futuros updates
       setEditingCarId(savedCar.id);
-
       setModalVisible(false);
     } catch (error) {
-      console.error('Erro ao salvar carro no backend:', error);
+      console.error('saveFavorite: Erro ao salvar carro no backend:', error);
     }
+  };
+
+  const handleFavoritePress = () => {
+    console.log('handleFavoritePress: Abrindo modal de favorito para carro:', carName);
+
+    if (!carName) {
+      console.warn('handleFavoritePress: Nome do carro vazio, abortando');
+      return;
+    }
+
+    if (isFavorite(carName)) {
+      const fav = favorites.find((f) => f.carName === carName);
+      console.log('handleFavoritePress: Carro é favorito, carregando dados:', fav);
+
+      setFavoriteDescription(fav?.description || '');
+      setFavoriteRating(fav?.rating?.toString() || '');
+      setEditingCarId(fav?.id || null);
+      setCarImage(fav?.carImage || carImage);
+    } else {
+      console.log('handleFavoritePress: Novo favorito, limpando campos');
+      setFavoriteDescription('');
+      setFavoriteRating('');
+      setEditingCarId(null);
+    }
+
+    setModalVisible(true);
+    console.log('handleFavoritePress: Modal visível setado para true');
   };
 
   // Animação menu
@@ -252,21 +265,23 @@ const HomeScreen = () => {
                   }}
                   placeholder="Digite uma nota"
                   placeholderTextColor={colors.text + '88'}
-                  maxLength={1}
                 />
 
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
-                    style={[styles.modalButton, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
-                    onPress={saveFavorite}
-                  >
-                    <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Salvar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modalButton, { backgroundColor: '#999', shadowColor: '#999' }]}
                     onPress={() => setModalVisible(false)}
+                    style={[styles.modalButton, { backgroundColor: '#ccc' }]}
+                    activeOpacity={0.7}
                   >
-                    <Text style={[styles.modalButtonText, { color: '#fff' }]}>Cancelar</Text>
+                    <Text style={{ color: '#000' }}>Cancelar</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={saveFavorite}
+                    style={[styles.modalButton, { backgroundColor: colors.primary }]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ color: colors.buttonText }}>Salvar</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -279,28 +294,20 @@ const HomeScreen = () => {
         <Pressable style={styles.menuOverlay} onPress={closeMenu}>
           <Animated.View
             style={[
-              styles.menu,
+              styles.menuContainer,
               {
                 backgroundColor: colors.cardBackground || colors.background,
                 transform: [{ translateX: slideAnim }],
-                shadowColor: colors.shadow,
-                shadowOpacity: 0.25,
-                shadowRadius: 10,
-                shadowOffset: { width: -5, height: 0 },
-                elevation: 8,
               },
             ]}
           >
-            <TouchableOpacity onPress={handleToggleTheme} style={styles.menuButton}>
-              <Ionicons
-                name={isDark ? 'sunny' : 'moon'}
-                size={24}
-                color={colors.text}
-                style={{ marginRight: 10 }}
-              />
-              <Text style={{ color: colors.text, fontWeight: '600', fontSize: 18 }}>
-                Alternar Tema
+            <TouchableOpacity onPress={handleToggleTheme} style={styles.menuItem}>
+              <Text style={[styles.menuText, { color: colors.text }]}>
+                Alternar Tema {isDark ? '(Claro)' : '(Escuro)'}
               </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={closeMenu} style={styles.menuItem}>
+              <Text style={[styles.menuText, { color: colors.text }]}>Fechar Menu</Text>
             </TouchableOpacity>
           </Animated.View>
         </Pressable>
@@ -310,62 +317,64 @@ const HomeScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1,
+  },
   content: {
-    padding: 20,
-    paddingTop: 10,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 60,
   },
   input: {
     marginBottom: 20,
   },
   buttonsContainer: {
+    marginBottom: 20,
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 15,
   },
   button: {
     paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 30,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 10,
-    elevation: 8,
+    paddingHorizontal: 40,
+    borderRadius: 25,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   buttonText: {
     fontSize: 18,
     fontWeight: '600',
   },
   carCard: {
-    marginTop: 10,
     marginBottom: 30,
   },
-
   modalOverlay: {
     flex: 1,
-    backgroundColor: '#000000bb',
-    justifyContent: 'center',
-    padding: 20,
+    justifyContent: 'flex-end',
+    backgroundColor: '#00000099',
   },
   modalContent: {
-    borderRadius: 18,
-    maxHeight: height * 0.85,
-    overflow: 'hidden',
+    maxHeight: height * 0.75,
+    borderTopLeftRadius: 25,
+    borderTopRightRadius: 25,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 30,
   },
   modalScrollContent: {
-    padding: 20,
+    paddingBottom: 20,
   },
   modalImageContainer: {
     alignItems: 'center',
     marginBottom: 15,
   },
   modalImage: {
-    width: 280,
-    height: 160,
-    borderRadius: 12,
+    width: '100%',
+    height: 200,
   },
   modalBody: {
-    marginTop: 10,
+    flex: 1,
   },
   modalTitle: {
     fontSize: 22,
@@ -379,12 +388,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   modalInput: {
-    borderWidth: 1.4,
-    padding: 10,
-    borderRadius: 10,
-    marginBottom: 18,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 16,
     fontSize: 16,
-    fontWeight: '500',
   },
   favoriteRow: {
     flexDirection: 'row',
@@ -393,37 +402,37 @@ const styles = StyleSheet.create({
   },
   modalButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
   },
   modalButton: {
+    flex: 1,
     paddingVertical: 12,
-    paddingHorizontal: 28,
-    borderRadius: 25,
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 7,
-  },
-  modalButtonText: {
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
+    borderRadius: 20,
+    marginHorizontal: 5,
+    alignItems: 'center',
   },
   menuOverlay: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#00000099',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
   },
-  menu: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
+  menuContainer: {
     width: 200,
-    height: '100%',
-    padding: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 15,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: -3, height: 0 },
+    elevation: 8,
   },
-  menuButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 25,
+  menuItem: {
+    paddingVertical: 12,
+  },
+  menuText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
