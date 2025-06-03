@@ -1,9 +1,9 @@
 import React, { useContext } from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemeContext } from '../contexts/ThemeContext';
 
-const Header = ({ onOpenMenu, onFavorite }) => {
+const Header = ({ onOpenMenu }) => {
   const { colors } = useContext(ThemeContext);
 
   return (
@@ -14,8 +14,12 @@ const Header = ({ onOpenMenu, onFavorite }) => {
 
       {/* Pode manter logo ou título aqui */}
 
-      <TouchableOpacity onPress={() => onFavorite(true)} style={styles.favoriteButton}>
-        <Ionicons name="heart-outline" size={28} color={colors.text} />
+      <TouchableOpacity style={styles.imageButton}>
+        <Image
+          source={require('../assets/logo-removebg-preview 1.svg')} // caminho da imagem local
+          style={styles.image}
+          resizeMode="contain"
+        />
       </TouchableOpacity>
     </View>
   );
@@ -32,8 +36,12 @@ const styles = StyleSheet.create({
   menuButton: {
     padding: 5,
   },
-  favoriteButton: {
+  imageButton: {
     padding: 5,
+  },
+  image: {
+    width: 45,
+    height: 45,
   },
 });
 
