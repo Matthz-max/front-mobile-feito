@@ -2,6 +2,7 @@ import axios from 'axios';
 
 const API_BASE_URL = 'http://192.168.1.14:8080/cars'; // ajuste para seu IP e porta
 
+//  api das imagens dos carro
 export const getCarImage = async (carName) => {
   try {
     const response = await axios.get(`https://carimagery.com/api.asmx/GetImageUrl?searchTerm=${carName}`, {
@@ -18,7 +19,7 @@ export const getCarImage = async (carName) => {
     return null;
   }
 };
-
+// Get basico
 export const getAllCars = async () => {
   try {
     const response = await axios.get(`${API_BASE_URL}/listar`);
@@ -28,7 +29,7 @@ export const getAllCars = async () => {
     throw error;
   }
 };
-
+// Post basico
 export const saveCar = async (carData) => {
   try {
     const response = await axios.post(`${API_BASE_URL}/salvar`, carData);
@@ -38,7 +39,7 @@ export const saveCar = async (carData) => {
     throw error;
   }
 };
-
+//  delete 
 export const deleteCar = async (id) => {
   try {
     await axios.delete(`${API_BASE_URL}/deletar/${id}`);
@@ -61,7 +62,7 @@ export const updateFavorite = async (id, isFavorite) => {
   }
 };
 
-// PUT atualizar um carro completo
+// PUT 
 export const updateCar = async (id, carData) => {
   try {
     console.log(`updateCar: Iniciando atualização do carro com id=${id}`);
@@ -76,7 +77,7 @@ export const updateCar = async (id, carData) => {
     throw error;
   }
 };
-
+// atualizar se nao tiver cria um carrinho 
 export const saveOrUpdateCar = async (carData) => {
   try {
     if (carData.id) {
